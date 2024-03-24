@@ -22,10 +22,11 @@ class Evaluator(Resource):
         #     return {'error': 'sampleModelAddress is required'}, 401
         model = MlModel(args['clientWeights'], args['testDataAddress'], args['testLabelAddress']) #TODO: Add model address
         results = model.get_evaluation_results()
-        return {'results': results}
+        new_model = "QmXvmaD8FuPnySgNaxv3vun9ZtuMGdDFnNS6tsLKz8Jhyj"
+        return {'results': results, 'new_model': new_model}, 200
     
     def get(self):
-        return {'data': 'get'}
+        return {'message': 'The model evaluator is running!'}, 200
 
 
 
