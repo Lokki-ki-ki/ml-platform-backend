@@ -1,5 +1,5 @@
 from flask_restful import Resource, reqparse
-from modelEvaluator import MlModel
+from app.modelEvaluator import MlModel
 
 
 class Evaluator(Resource):

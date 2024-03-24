@@ -5,7 +5,8 @@ import numpy as np
 import h5py
 import asyncio
 import aiohttp
-from utils import ipfs_utils, ml_utils, logging_utils
+from app.utils import download_file_from_ipfs, download_model_from_ipfs, initialize_sample_model
+from app.utils import download_weights_from_ipfs_async
 
 ########## Configurations ##########
 TEST_DATA = "QmZxr5vzCirovKm2sGXqo1rHvC9mfsNeTMXjos9fcQri6X"
@@ -17,9 +18,9 @@ class MlModel:
     def __init__(self, client_weights, test_data_add=TEST_DATA, test_labels_add=TEST_LABELS, model_address=None):
         # convert matrixSize and weights to numpy array
         if model_address:
-            self.model = ipfs_utils.download_model_from_ipfs(model_address)
+            self.model = download_model_from_ipfs(model_address)
         else: # TODO: remove this else block
-            self.model = ml_utils.initialize_sample_model()
+            self.model = initialize_sample_model()
         logging.info("Initialize the model successfully.")
         self.clientToWeights = asyncio.run(self.download_clients_weights(client_weights))
         self.download_test_data(test_data_add, test_labels_add)
@@ -44,7 +45,7 @@ class MlModel:
         tasks = []
         async with aiohttp.ClientSession() as session:
             for i in range(len(client_weights)):
-                task = asyncio.create_task(ipfs_utils.download_weights_from_ipfs_async(session, client_weights[i], i))
+                task = asyncio.create_task(download_weights_from_ipfs_async(session, client_weights[i], i))
                 tasks.append(task)
             paths = await asyncio.gather(*tasks)
         # return paths to client - path map
@@ -54,8 +55,8 @@ class MlModel:
 
     def download_test_data(self, test_data_add, test_labels_add):
         # TODO: validation layer / error handling
-        test_data_path = ipfs_utils.download_file_from_ipfs(test_data_add)
-        test_labels_path = ipfs_utils.download_file_from_ipfs(test_labels_add)
+        test_data_path = download_file_from_ipfs(test_data_add)
+        test_labels_path = download_file_from_ipfs(test_labels_add)
         with h5py.File(test_data_path, "r") as hf:
             data = hf["test_data"][:]
             hf.close()
