@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import cross_origin, CORS
 import logging
 from flask_restful import Api
 from app.routes.evaluator import Evaluator
@@ -9,6 +10,9 @@ setup_logging("mainApp.log")
 def create_app():
     app = Flask(__name__)
     api = Api(app)
+
+    # Enable CORS
+    CORS(app)
 
     setup_error_handlers(app)
 
