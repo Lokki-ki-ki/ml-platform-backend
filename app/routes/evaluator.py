@@ -41,7 +41,7 @@ class Evaluator(Resource):
             return {'error': 'testLabelAddress is required'}, 401
         
         # def __init__(self, client_weights, test_data_add=TEST_DATA, test_labels_add=TEST_LABELS, model_address=None, reward_pool=None, clientsToReputation=None, clientsToSubmissions=None, test_data_hash=None, test_label_hash=None):
-        model = MlModel(args['clientsToSubmissions'], args['testDataAddress'], args['testLabelAddress'], args['modelAddress'], args['rewardPool'], args['clientsToReputation'], args['testDataHash'], args['testLabelHash']) #TODO: Add model address
+        model = MlModel(args['clientsToSubmissions'], args['testDataAddress'], args['testLabelAddress'], None, args['rewardPool'], args['clientsToReputation'], args['testDataHash'], args['testLabelHash']) #TODO: Add model address
         results = model.get_evaluation_results()
         # Results shoule contains:
         # const newModelAddress = "0x1234567890123456789012345678901234567890";
