@@ -16,43 +16,79 @@ TEMP_FILE_PATH = Path(__file__).parent.parent / FOLDER
 if not TEMP_FILE_PATH.exists():
     TEMP_FILE_PATH.mkdir()
 ####################################
+    
+gateways = ["https://ipfs.io/", "https://chocolate-tremendous-possum-944.mypinata.cloud/"]
 
 async def download_weights_from_ipfs_async(session, ipfs_cid: str, client_id: int) -> str:
     """
     Download the file from IPFS and return the temp file path.
     """
-    add_url = "https://ipfs.io/ipfs/" + ipfs_cid
-    async with session.get(add_url) as r:
-        if r.status != 200:
-            raise HTTPException(description="Failed to download the file from IPFS", code=r.status)
-        file = await r.read()
-        file_type = r.headers['Content-Type']
-        if file_type == "application/json":
-            filename = ipfs_cid + ".json"
-        elif file_type == "text/plain":
-            filename = ipfs_cid + ".txt"
-        elif file_type == "application/octet-stream":
-            filename = ipfs_cid + ".h5"
-        else:
-            raise HTTPException("Unsupported file type", 501)
-        # TODO: To delete the file after the session is closed
-        with open(TEMP_FILE_PATH / filename, 'wb') as f:
-            f.write(file)
-            f.close()
-        return client_id, str(TEMP_FILE_PATH) + "/" + filename
+    # If already has file, return the file path, for testing purpose
+    for file in TEMP_FILE_PATH.iterdir():
+        if ipfs_cid in file.name:
+            print("File exists: ", file)
+            return client_id, str(file)
+    
 
-def download_file_from_ipfs(ipfs_cid: str) -> str:
+    file = None
+    for gateway in gateways:
+        try:
+            add_url = f"{gateway}ipfs/{ipfs_cid}"
+            async with session.get(add_url) as r:
+                if r.status_code == 200:
+                    file = await r.read()
+                    file_type = r.headers['Content-Type']
+                    print(add_url + "Used")
+                    logging.info(f"Successfully fetched the file from {gateway}")
+                    break  # Successfully fetched the file, break out of the loop
+                else: continue
+        except:
+            continue  # Try the next gateway
+
+    if file is None:
+        raise HTTPException(description="Failed to download the file from IPFS")
+
+    if file_type == "application/json":
+        filename = ipfs_cid + ".json"
+    elif file_type == "text/plain":
+        filename = ipfs_cid + ".txt"
+    elif file_type == "application/octet-stream":
+        filename = ipfs_cid + ".h5"
+    else:
+        raise HTTPException("Unsupported file type", 501)
+    # TODO: To delete the file after the session is closed
+    with open(TEMP_FILE_PATH / filename, 'wb') as f:
+        f.write(file)
+        f.close()
+    return client_id, str(TEMP_FILE_PATH) + "/" + filename
+
+def download_file_from_ipfs(ipfs_cid: str, client_id) -> str:
     """
     Download the file from IPFS and return the temp file path.
     """
-    add = "https://ipfs.io/ipfs/" + ipfs_cid
-    # logging.info("Downloading the file from IPFS:%s".format(add))
-    r = requests.get(add)
-    if r.status_code != 200:
-        # logging.error("Failed to download the file. Status code: ", r.status_code)
-        raise HTTPException(description="Failed to download the file from IPFS", code=r.status_code)
+    # If already has file, return the file path, for testing purpose
+    for file in TEMP_FILE_PATH.iterdir():
+        if ipfs_cid in file.name:
+            print("File exists: ", file)
+            return client_id, str(file)
+    
+    # Try all address unless all disconnected then throw errors
+    for gateway in gateways:
+        try:
+            url = f"{gateway}ipfs/{ipfs_cid}"
+            r = requests.get(url)
+            if r.status_code == 200:
+                print(url + "Used")
+                logging.info(f"Successfully fetched the file from {gateway}")
+                break  # Successfully fetched the file, break out of the loop
+        except:
+            continue  # Try the next gateway
+    else:  # No break encountered
+        raise HTTPException(description="Failed to download the file from IPFS")
+
     # Get the file type and save the file
     file_type = r.headers['Content-Type']
+    print(file_type)
     # logging.info("File type:%s".format(file_type))
     if file_type == "application/json":
         filename = ipfs_cid + ".json"
@@ -65,13 +101,13 @@ def download_file_from_ipfs(ipfs_cid: str) -> str:
     with open(TEMP_FILE_PATH / filename, 'wb') as f:
         f.write(r.content)
         f.close()
-    return str(TEMP_FILE_PATH) + "/" + filename
+    return client_id, str(TEMP_FILE_PATH) + "/" + filename
     
 def download_model_from_ipfs(ipfs_cid: str):
     """
     Download the model from IPFS and return the model object.
     """
-    model = download_file_from_ipfs(ipfs_cid)
+    model = download_file_from_ipfs(ipfs_cid, 0)[1]
     if model:
         # model = models.model_from_json(model)
         model = models.load_model(model)
@@ -88,10 +124,30 @@ def hash_file(filepath, block_size=65536):
         f.close()
     return hash_sha256.hexdigest()
 
+def upload_to_ipfs(filepath):
+    """
+    Upload the file to IPFS and return the CID.
+    """
+    url = "https://api.pinata.cloud/pinning/pinFileToIPFS"
+    headers = {"Authorization": "Bearer " + os.getenv("PINATA_API_KEY")}
+    files = {
+        "file": open(filepath, 'rb')
+    }
+    r = requests.post(url, headers=headers, files=files)
+    if r.status_code == 200:
+        return r.json()['IpfsHash']
+    else:
+        raise HTTPException(description="Failed to upload the file to IPFS")
+
 # Testing the function
 if __name__ == "__main__":
-    res = download_file_from_ipfs("QmT5JHVS6SQDvnqucZjqNHsQbJWEJmv1vadxzKMdDwL8Ah")
-    print(res)
+    # res = download_file_from_ipfs("QmdfzatZMtMmaWMTNsJuvCQcBbHAQFSGTrYLi6CiZ5fWTi", 0)
+    # print(res)
+    temp = "temp_weights.h5"
+    filepath = TEMP_FILE_PATH / temp
+    cid = upload_to_ipfs(filepath)
+    print(cid)
+
 
 
     
