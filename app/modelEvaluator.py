@@ -3,7 +3,7 @@ import logging
 import tensorflow as tf
 import numpy as np
 from itertools import combinations
-from app.utils import download_file_from_ipfs, download_model_from_ipfs, initialize_sample_model, download_test_data, formatting_weights, evaluate_model_by_weight, calculate_avg_weights
+from app.utils import download_file_from_ipfs, download_model_from_ipfs, initialize_sample_model, download_test_data, formatting_weights, evaluate_model_by_weight, calculate_avg_weights, upload_to_ipfs
 from app.shapley import calculate_SV, prepare_SV
 from app.shapley import truncated_monte_carlo_shapley
 from dotenv import load_dotenv, find_dotenv
@@ -50,7 +50,9 @@ class MlModel:
         logging.info("Download the weights & data successfully.")
         self.sv_results = self.calculate_SV_for_all_clients(self.clientToWeights, self.test_data, self.test_labels)
         self.calculate_reputation(self.sv_results, reward_pool, self.clientReputation)
+        self.new_model = self.generate_new_model(self.clientToWeights, self.model)
         self.evaluation_res = self.get_evaluation_results()
+        print(self.evaluation_res)
         # self.monte_carlo = self.calculate_SV_by_Monte_Carlo_for_all_clients(self.model, self.sample_weights, self.test_data, self.test_labels, evaluate_model_by_weight, self.clientToWeights)
         # print(self.monte_carlo, 'monte_carlo')
         # print(self.sv_results, 'sv_results')
@@ -80,20 +82,23 @@ class MlModel:
         #     "clientRewards": [100, 100, 100, 90, 80]
         # }
         results = {}
-        results["newModelAddress"] = "QmPvZbSMP7sfDhdsEFt5AWmjs67LUKoXjLu46q29cJ4CWL"
+        results["newModelAddress"] = self.new_model
         results["clientIds"] = list(self.clientToWeights.keys())
         results["clientNewReputations"] = json.loads(json.dumps(self.clientToReputation))
         results["clientRewards"] = json.loads(json.dumps(self.clientToRewards))
         return results
             
-    def generate_new_model(self, clientToWeights):
+    def generate_new_model(self, clientToWeights, sample_model):
         """
         Generate a new model with the given weights
         """
-        avg_weights = calculate_avg_weights(clientToWeights, clientToWeights.keys())
+        avg_weights = calculate_avg_weights(clientToWeights, clientToWeights.keys(), sample_model)
         model = self.model
         model.set_weights(avg_weights)
         model.save_weights(TEMP_FILE_PATH / "new_weights.h5")
+        new_cid = upload_to_ipfs(TEMP_FILE_PATH / "new_weights.h5")
+        os.rename(TEMP_FILE_PATH / "new_weights.h5", TEMP_FILE_PATH / f"{new_cid}.h5")
+        return new_cid
         
     def download_clients_weights(self, client_weights):
         """
