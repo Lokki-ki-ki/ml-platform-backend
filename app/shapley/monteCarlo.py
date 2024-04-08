@@ -31,8 +31,8 @@ def truncated_monte_carlo_shapley(sample_model, sample_weights, test_data, test_
     # make a copy of the model instead of reference
     agg_D = sample_model
     agg_D.set_weights(agg_D_weights)
-    agg_D.save_weights(TEMP_FILE_PATH / "temp_weights.h5")
-    _, v_D = evaluation_func(TEMP_FILE_PATH / "temp_weights.h5", 0, sample_model, test_data, test_labels)[1]
+    agg_D.save_weights(TEMP_FILE_PATH / "temp_weights.weights.h5")
+    _, v_D = evaluation_func(TEMP_FILE_PATH / "temp_weights.weights.h5", 0, sample_model, test_data, test_labels)[1]
     print(v_D, 'v_D')
     marginal_contributions = { i: 0 for i in clientsToWeights.keys() }
 
@@ -42,8 +42,8 @@ def truncated_monte_carlo_shapley(sample_model, sample_weights, test_data, test_
         j = 0
         model = sample_model
         model.set_weights(sample_weights)
-        model.save_weights(TEMP_FILE_PATH / "temp_weights.h5")
-        _, v_previous = evaluation_func(TEMP_FILE_PATH / "temp_weights.h5", j, sample_model, test_data, test_labels)[1]
+        model.save_weights(TEMP_FILE_PATH / "temp_weights.weights.h5")
+        _, v_previous = evaluation_func(TEMP_FILE_PATH / "temp_weights.weights.h5", j, sample_model, test_data, test_labels)[1]
         print(v_previous, 'v_previous')
         # v_previous = 0
         for j in range(1, n + 1):
@@ -54,8 +54,8 @@ def truncated_monte_carlo_shapley(sample_model, sample_weights, test_data, test_
                 tup = permutation[:j]
                 agg_weights = calculate_avg_weights(clientsToWeights, tup, sample_model)
                 agg_model.set_weights(agg_weights)
-                agg_model.save_weights(TEMP_FILE_PATH / "temp_weights.h5")
-                _, v_current = evaluation_func(TEMP_FILE_PATH / "temp_weights.h5", j, sample_model, test_data, test_labels)[1]
+                agg_model.save_weights(TEMP_FILE_PATH / "temp_weights.weights.h5")
+                _, v_current = evaluation_func(TEMP_FILE_PATH / "temp_weights.weights.h5", j, sample_model, test_data, test_labels)[1]
             print(v_current, 'v_current')
             client = permutation[j-1]
             marginal_contributions[client] = (t-1)/t * marginal_contributions[client] + (v_current - v_previous) / t

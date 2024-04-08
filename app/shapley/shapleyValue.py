@@ -76,8 +76,8 @@ def calculate_accuracy_for_permutations(clientToWeights, sample_model, sample_we
         avg_weights = calculate_avg_weights(clientToWeights, tup, sample_model)
         model = sample_model
         model.set_weights(avg_weights)
-        model.save_weights(TEMP_FILE_PATH / "temp_weights.h5")
-        acc = evaluation_function(TEMP_FILE_PATH / "temp_weights.h5", key, sample_model, test_data, test_labels)
+        model.save_weights(TEMP_FILE_PATH / "temp_weights.weights.h5")
+        acc = evaluation_function(TEMP_FILE_PATH / "temp_weights.weights.h5", key, sample_model, test_data, test_labels)
         dict_of_acc[key] = acc[1][1]
     model.set_weights(sample_weights)
     dict_of_acc[''] = model.evaluate(test_data, test_labels)[1]

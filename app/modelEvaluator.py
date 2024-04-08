@@ -95,9 +95,9 @@ class MlModel:
         avg_weights = calculate_avg_weights(clientToWeights, clientToWeights.keys(), sample_model)
         model = self.model
         model.set_weights(avg_weights)
-        model.save_weights(TEMP_FILE_PATH / "new_weights.h5")
-        new_cid = upload_to_ipfs(TEMP_FILE_PATH / "new_weights.h5")
-        os.rename(TEMP_FILE_PATH / "new_weights.h5", TEMP_FILE_PATH / f"{new_cid}.h5")
+        model.save_weights(TEMP_FILE_PATH / "new_weights.weights.h5")
+        new_cid = upload_to_ipfs(TEMP_FILE_PATH / "new_weights.weights.h5")
+        os.rename(TEMP_FILE_PATH / "new_weights.weights.h5", TEMP_FILE_PATH / f"{new_cid}.weights.h5")
         return new_cid
         
     def download_clients_weights(self, client_weights):
