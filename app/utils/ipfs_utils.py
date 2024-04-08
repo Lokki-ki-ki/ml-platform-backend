@@ -2,6 +2,7 @@ import logging
 import asyncio
 import requests
 import tensorflow as tf
+import h5py
 import hashlib
 from tensorflow.keras import models
 from dotenv import load_dotenv, find_dotenv
@@ -18,6 +19,12 @@ if not TEMP_FILE_PATH.exists():
 ####################################
     
 gateways = ["https://ipfs.io/", "https://chocolate-tremendous-possum-944.mypinata.cloud/"]
+
+def formatting_weights(clientsToWeights):
+    """
+    Make sure that the keys are integers
+    """
+    return {int(k): v for k, v in clientsToWeights.items()}
 
 async def download_weights_from_ipfs_async(session, ipfs_cid: str, client_id: int) -> str:
     """
@@ -138,6 +145,18 @@ def upload_to_ipfs(filepath):
         return r.json()['IpfsHash']
     else:
         raise HTTPException(description="Failed to upload the file to IPFS")
+    
+def download_test_data(test_data_add, test_labels_add):
+    test_data_path = download_file_from_ipfs(test_data_add, 0)[1]
+    test_labels_path = download_file_from_ipfs(test_labels_add, 0)[1]
+    with h5py.File(test_data_path, "r") as hf:
+        data = hf["test_data"][:]
+        hf.close()
+    with h5py.File(test_labels_path, "r") as hf:
+        labels = hf["test_labels"][:]
+        hf.close()
+    logging.info(f"Test data and labels downloaded successfully in the shape: {data.shape} and {labels.shape}")
+    return data, labels
 
 # Testing the function
 if __name__ == "__main__":

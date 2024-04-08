@@ -2,13 +2,10 @@ from tensorflow.keras import layers, models
 import logging
 import tensorflow as tf
 import numpy as np
-import h5py
-import math
-import asyncio
-import aiohttp
 from itertools import combinations
-from app.utils import download_file_from_ipfs, download_model_from_ipfs, initialize_sample_model
-from app.utils import download_weights_from_ipfs_async
+from app.utils import download_file_from_ipfs, download_model_from_ipfs, initialize_sample_model, download_test_data, formatting_weights, evaluate_model_by_weight, calculate_avg_weights
+from app.shapley import calculate_SV, prepare_SV
+from app.shapley import truncated_monte_carlo_shapley
 from dotenv import load_dotenv, find_dotenv
 from pathlib import Path
 import os
@@ -46,19 +43,17 @@ class MlModel:
             self.model = download_model_from_ipfs(model_address)
         else: # TODO: remove this else block
             self.model = initialize_sample_model()
-        logging.info("Initialize the model successfully.")
-        self.clientToWeights = self.download_clients_weights(clients_submissions)
-        self.download_test_data(test_data_add, test_labels_add)
+        self.sample_weights = self.model.get_weights()
+        self.clientToWeights = formatting_weights(self.download_clients_weights(clients_submissions))
+        self.clientReputation = formatting_weights(clients_reputation)
+        self.test_data, self.test_labels = download_test_data(test_data_add, test_labels_add)
         logging.info("Download the weights & data successfully.")
-        self.dict_of_acc = self.calculate_accuracy_for_permutations(clients_submissions.keys(), self.clientToWeights)
-        # contribution = self.calculate_federate_contribution(self.clientToWeights)
-        # print(contribution)
-        self.sv_results = self.calculate_SV_for_all_clients(self.permutations, self.clientToWeights)
-        # print(sv_results)
-        self.calculate_reputation(self.sv_results, reward_pool, clients_reputation)
+        self.sv_results = self.calculate_SV_for_all_clients(self.clientToWeights, self.test_data, self.test_labels)
+        self.calculate_reputation(self.sv_results, reward_pool, self.clientReputation)
         self.evaluation_res = self.get_evaluation_results()
-        print(self.evaluation_res)
-        # logging.info("Evaluation results are ready.")
+        # self.monte_carlo = self.calculate_SV_by_Monte_Carlo_for_all_clients(self.model, self.sample_weights, self.test_data, self.test_labels, evaluate_model_by_weight, self.clientToWeights)
+        # print(self.monte_carlo, 'monte_carlo')
+        # print(self.sv_results, 'sv_results')
     
     def calculate_reputation(self, sv_results, reward_pool, clients_reputation):
         """
@@ -77,7 +72,6 @@ class MlModel:
         self.clientToRewards = clientToRewards
         self.clientToReputation = clients_reputation
 
-        
     def get_evaluation_results(self):
         # dummy_results = {
         #     "newModelAddress": "QmYEMkTVdYF7bBoJ28D2Lrqex1xozLZ5yHQ8pjDuJ18zQe",
@@ -96,169 +90,39 @@ class MlModel:
         """
         Generate a new model with the given weights
         """
-        avg_weights = self.calculate_avg_weights(clientToWeights, clientToWeights.keys())
+        avg_weights = calculate_avg_weights(clientToWeights, clientToWeights.keys())
         model = self.model
         model.set_weights(avg_weights)
         model.save_weights(TEMP_FILE_PATH / "new_weights.h5")
         
-    
     def download_clients_weights(self, client_weights):
         """
         Convert client_id: weights_ipfs_address to client_id: weights_local_path
         """
-        # client_weights : client_id: weights_address
         clientsToWeights = {}
-        # tasks = []
-        # async with aiohttp.ClientSession() as session:
         for client_id, weights_address in client_weights.items():
             path = download_file_from_ipfs(weights_address, client_id)
             clientsToWeights[path[0]] = path[1]
-        #         task = asyncio.create_task(download_file_from_ipfs(session, weights_address, client_id))
-        #         tasks.append(task)
-        #     paths = await asyncio.gather(*tasks)
-        # return paths to client - path map
-        # for path in paths:
-        #     clientsToWeights[path[0]] = path[1]
         return clientsToWeights
-
-    def download_test_data(self, test_data_add, test_labels_add):
-        # TODO: validation layer / error handling
-        test_data_path = download_file_from_ipfs(test_data_add, 0)[1]
-        test_labels_path = download_file_from_ipfs(test_labels_add, 0)[1]
-        with h5py.File(test_data_path, "r") as hf:
-            data = hf["test_data"][:]
-            hf.close()
-        with h5py.File(test_labels_path, "r") as hf:
-            labels = hf["test_labels"][:]
-            hf.close()
-        self.test_data = data
-        self.test_labels = labels
-        logging.info(f"Test data and labels downloaded successfully in the shape: {self.test_data.shape, self.test_labels.shape}")
-
-    async def evaluate_model(self, weights_path, client_id):
-        """
-        Evaluate the model by the weights path
-        """
-        model = self.model
-        model.load_weights(weights_path)
-        evaluation_results = model.evaluate(self.test_data, self.test_labels)
-        return client_id, evaluation_results
     
-    def evaluate_model_by_weight(self, weights, client_id):
-        """
-        Evaluate the model by the weights
-        """
-        model = self.model
-        model.load_weights(weights)
-        evaluation_results = model.evaluate(self.test_data, self.test_labels)
-        return client_id, evaluation_results
-    
-    async def main_evaluation(self):
-        """
-        Evaluate the model with the given weights
-        """
-        tasks = []
-        all_weights_paths = self.clientToWeights.values()
-        for client_id, weights_path in self.clientToWeights.items():
-            task = asyncio.create_task(self.evaluate_model(weights_path, client_id))
-            tasks.append(task)
-        results = await asyncio.gather(*tasks)
-        return results
-    
-    def get_all_combinations(self, clients_ids):
-        """
-        Input: list of clients' ids
-        For each possible permutation length, generate permutations
-        Returns [["1", "2", "3], ["2", "3"]]...
-        """
-        all_combinations = []
-        for i in range(1, len(clients_ids)+1):
-            all_combinations.extend(list(combinations(clients_ids, i)))
-        return all_combinations
-    
-    def sort_tuple(self, tup):
-        """
-        Input: a tuple
-        Output: a sorted string
-        """
-        result = list(tup)
-        result.sort()
-        str_result = ''.join(list(map(lambda x: str(x), result)))
-        return str_result
-    
-    def calculate_avg_weights(self, clientToWeights, tup):
-        weights = []
-        for i in tup:
-            # Only load the weights in client tup
-            model = self.model
-            model.load_weights(clientToWeights[i])
-            weights.append(model.get_weights())
-        avg_weights = []
-        for i in range(len(weights[0])):
-            avg_weights.append(np.average([model[i] for model in weights], axis=0))
-        return avg_weights
-    
-    def calculate_accuracy_for_permutations(self, clients_ids, clientToWeights):
-        """
-        Input: a dictionary of permutations and a dictionary of weights
-        Output: a dictionary of permutations and their corresponding accuracy
-        """
-        dict_of_acc = {}
-        self.permutations = self.get_all_combinations(clients_ids)
-        for tup in self.permutations:
-            key = self.sort_tuple(tup)
-            avg_weights = self.calculate_avg_weights(clientToWeights, tup)
-            model = self.model
-            model.set_weights(avg_weights)
-            model.save_weights(TEMP_FILE_PATH / "temp_weights.h5")
-            acc = self.evaluate_model_by_weight(TEMP_FILE_PATH / "temp_weights.h5", key)
-            dict_of_acc[key] = acc[1][1]
-        # print(dict_of_acc)
-        dict_of_acc[''] = self.model.evaluate(self.test_data, self.test_labels)[1]
-        return dict_of_acc
-    
-    def calculate_SV_for_all_clients(self, permutations, clientToWeights):
+    def calculate_SV_for_all_clients(self, clientToWeights, test_data, test_labels):
         """
         Input: a list of permutations and a dictionary of weights
         Output: a dictionary of clients and their corresponding SV
         """
+        permutations, dict_of_acc = prepare_SV(clientToWeights, self.model, self.sample_weights, evaluate_model_by_weight, test_data, test_labels)
+        # sv_one = calculate_SV(permutations, dict_of_acc, 1, len(clientsToWeights))
+
         dict_of_SV = {}
         N = len(clientToWeights)
         for client_id in clientToWeights.keys():
-            SV = self.calculate_SV(permutations, client_id, N)
+            SV = calculate_SV(permutations, dict_of_acc, client_id, N)
             dict_of_SV[client_id] = SV
         return dict_of_SV
-
-    def calculate_SV(self, permutations, client_id, N, if_logistic=True):
-        print("Calculating SV for client {}".format(client_id))
-        SV = 0
-        for tup in permutations:
-            if client_id in tup:
-                S = len(tup)
-                tag = self.sort_tuple(tup)
-                current_acc = self.dict_of_acc[tag]
-                minusset = set(tup) - set([client_id])
-                minusset_tag = self.sort_tuple(minusset)
-                minusset_acc = self.dict_of_acc[minusset_tag]
-                # print("minusset: {}".format(minusset_acc))
-                weight = self.calculate_weight(N, S)
-                SV += weight * self.logistic_function((current_acc - minusset_acc))
-        print("SV for client {} is {}".format(client_id, SV))
-        return SV
-    
-    def logistic_function(self, x):
-        return 1 / (1 + math.exp(-x))
-
-    def calculate_weight(self, N, S):
-        """
-        Input: number of clients, number of clients in a subset
-        Output: weight
-        """
-        return math.factorial(N - S) * math.factorial(S - 1) / math.factorial(N)
     
     def calculate_federate_contribution(self, clientToWeights):
         tup = self.sort_tuple(clientToWeights.keys())
-        global_weight = self.calculate_avg_weights(clientToWeights, tup)
+        global_weight = calculate_avg_weights(clientToWeights, tup)
         clientToContribution = {}
 
         for client_id, weights_path in clientToWeights.items():
@@ -273,26 +137,17 @@ class MlModel:
             print("Federate contribution for client {} is {}".format(client_id, federate_contribution_score))
             clientToContribution[client_id] = federate_contribution_score
         return clientToContribution
+    
+    def calculate_SV_by_Monte_Carlo_for_all_clients(self, sample_model, sample_weights, test_data, test_labels, evaluate_model_by_weight, clientsToWeight):
+        """
+        Calculate Shapley Value by Monte Carlo for all clients
+        """
+        res = truncated_monte_carlo_shapley(sample_model, sample_weights, test_data, test_labels, evaluate_model_by_weight, clientsToWeight)
+        return res
 
-        
-
-
-        
 
 ### For Testing ###
 if __name__ == "__main__":
-#     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-#     model = models.Sequential([
-#         layers.Flatten(input_shape=(32, 32)),
-#         layers.Dense(128, activation="relu"),
-#         layers.Dense(64, activation="relu"),
-#         layers.Dropout(0.2),
-#         layers.Dense(10)
-#     ])
-#     model.compile(optimizer="adam", loss=loss_fn, metrics=["accuracy"])
-#     sample_weights = model.get_weights()
-#     client_weights = [ "QmXvmaD8FuPnySgNaxv3vun9ZtuMGdDFnNS6tsLKz8Jhyj", "QmXvmaD8FuPnySgNaxv3vun9ZtuMGdDFnNS6tsLKz8Jhyj" ]
-#     test = MlModel(client_weights)
     example = {
         "clientsToSubmissions":{"1":"QmdfzatZMtMmaWMTNsJuvCQcBbHAQFSGTrYLi6CiZ5fWTi","2":"QmX4T5dLBrubvGmUJnkM1tP1j8oPC5ZwDMUWdDR1R9wWNN","3":"QmTCxkXPG9fetQs1mP6QmQDWAx5vUc325u8AndPquJQv62","4":"QmPZeG6uJsX1EsKd4BeR5cPNBScAwpU7CLXRGXrEgbUpSV","5":"Qmc8VCb4DWZbXxhqcCCsqdVoYiGqrmkVbQ4fHPhYopRwS1"},
         "clientsToReputation":{"1":"100","2":"100","3":"100", "4": "100", "5": "100"},
